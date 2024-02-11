@@ -1,10 +1,13 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiErrors } from "../utils/ApiErrors.js";
 import { User } from "../models/user.model.js";
-import { uploadToCloudinary,deletFromCloudinary } from "../utils/cloudinary.js";
+import {
+  uploadToCloudinary,
+  deleteFromCloudinary,
+} from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
-import { Schema } from "mongoose";
+import mongoose, { Schema } from "mongoose";
 
 const generateAccessAndRefreshTokens = async (user) => {
   try {
@@ -35,7 +38,6 @@ const registerUser = asyncHandler(async (req, res) => {
   // check for user creation
   // return res
 
-  // get user details from frontend
   const { username, fullName, email, password } = req.body;
   console.log({
     username,
@@ -44,32 +46,17 @@ const registerUser = asyncHandler(async (req, res) => {
     password,
   });
 
-  // validation - not empty
   if (
     [username, fullName, email, password].some((value) => value?.trim() === "")
   ) {
     throw new ApiErrors(404, "All fields are required!");
   }
 
-  // check if user already exists: username, email
-  const existedUser = await User.findOne({
-    $or: [{ username }, { email }],
-  });
+  const avatarLocalPath = req.files?.avatar?.[0]?.path;
 
-  // console.log(existedUser);
-
-  if (existedUser) {
-    throw new ApiErrors(
-      409,
-      "user with this username or email already exists!"
-    );
+  if (!avatarLocalPath) {
+    throw new ApiErrors(404, "avatar file is required!");
   }
-
-  // check for images, check for avatar
-  // console.log(req.files);
-
-  const avatarLocalPath = req.files?.avatar[0]?.path;
-  // const coverImageLocalPath = req.files?.coverImage[0]?.path;
 
   let coverImageLocalPath;
   if (
@@ -77,53 +64,58 @@ const registerUser = asyncHandler(async (req, res) => {
     Array.isArray(req.files.coverImage) &&
     req.files.coverImage.length > 0
   ) {
-    coverImageLocalPath = req.files.coverImage[0].path;
-  }
-  // console.log(avatarLocalPath, coverImageLocalPath);
-
-  if (!avatarLocalPath) {
-    throw new ApiErrors(404, "avatar file is required!");
+    coverImageLocalPath = req.files?.coverImage[0].path;
   }
 
-  // upload them to cloudinary, avatar
-  const avatar = await uploadToCloudinary(avatarLocalPath);
-  const coverImage = await uploadToCloudinary(coverImageLocalPath);
-  console.log(avatar);
+  console.log(coverImageLocalPath);
 
-  // create user object - create entry in db
-  const user = await User.create({
-    username,
-    fullName,
-    email,
-    password,
-    avatar: avatar.url,
-    coverImage: coverImage.url || "",
-  });
+  try {
+    const existedUser = await User.findOne({
+      $or: [{ username }, { email }],
+    });
 
-  // remove password and refresh token field from response
-  const currentUser = await User.findById(user._id)?.select(
-    "-password -refreshToken"
-  );
+    if (existedUser) {
+      throw new ApiErrors(
+        409,
+        "user with this username or email already exists!"
+      );
+    }
 
-  // check for user creation
-  if (!currentUser) {
-    throw new ApiErrors(500, "Somthing went wrong while creating user");
+    // upload them to cloudinary, avatar
+    const avatar = await uploadToCloudinary(avatarLocalPath);
+    const coverImage = await uploadToCloudinary(coverImageLocalPath);
+    console.log(avatar);
+
+    // create user object - create entry in db
+    const user = await User.create({
+      username,
+      fullName,
+      email,
+      password,
+      avatar: avatar.url,
+      coverImage: coverImage?.url || "",
+    });
+
+    // remove password and refresh token field from response
+    const currentUser = await User.findById(user._id)?.select(
+      "-password -refreshToken"
+    );
+
+    // check for user creation
+    if (!currentUser) {
+      throw new ApiErrors(500, "Somthing went wrong while creating user");
+    }
+
+    // return res
+    return res
+      .status(201)
+      .json(new ApiResponse(currentUser, 200, "user created successfully"));
+  } catch (error) {
+    throw new ApiErrors(500, "Somthing went wrong while registering user ");
   }
-
-  // return res
-  return res
-    .status(201)
-    .json(new ApiResponse(currentUser, 200, "user created successfully"));
 });
 
 const loginUser = asyncHandler(async (req, res) => {
-  // get data from FE
-  // validate user details
-  // check wethere user exist or not
-  // check for password
-  // access refresh and access token
-  // send cookie
-
   const { username, email, password } = req.body;
 
   if (!(username || email)) {
@@ -134,8 +126,8 @@ const loginUser = asyncHandler(async (req, res) => {
     $or: [{ username }, { email }],
   });
 
-  if(!user) {
-    throw new ApiErrors(404,"User not found")
+  if (!user) {
+    throw new ApiErrors(404, "User not found");
   }
 
   const isPasswordValid = await user.isPasswordCorrect(password);
@@ -147,13 +139,9 @@ const loginUser = asyncHandler(async (req, res) => {
   const { refreshToken, accessToken } =
     await generateAccessAndRefreshTokens(user);
 
-  // console.log(user);
-
   const currentUser = await User.findOne({
     $or: [{ username }, { email }],
   }).select("-password -refreshToken");
-
-  // console.log(currentUser);
 
   const options = {
     httpOnly: true,
@@ -178,7 +166,6 @@ const loginUser = asyncHandler(async (req, res) => {
 });
 
 const loggoutUser = asyncHandler(async (req, res) => {
-  console.log(req.user._id);
   const user = await User.findByIdAndUpdate(
     req.user._id,
     {
@@ -315,20 +302,26 @@ const updateAvatar = asyncHandler(async (req, res) => {
   }
 
   const avatar = await uploadToCloudinary(avatarLocalPath);
-  console.log(avatar);
 
   if (!avatar) {
     throw new ApiErrors(400, "Error while uploading to cloud ");
   }
 
-  const user = await User.findById(req.user?._id).select("-password -refreshToken")
+  const user = await User.findById(req.user?._id).select(
+    "-password -refreshToken"
+  );
 
-  const response = await deletFromCloudinary(user.avatar)
+  if (!user) throw new ApiErrors(404, "user not found");
 
-  user.avatar = avatar.url
+  const response = await deleteFromCloudinary(user.avatar);
 
-  await user.save({validateBeforeSave:false})
-  
+  if (!response)
+    throw new ApiErrors(401, "Somthing went wrong while deleting avatar");
+
+  user.avatar = avatar.url;
+
+  await user.save({ validateBeforeSave: false });
+
   return res
     .status(200)
     .json(new ApiResponse(response, 200, "Avatar updated successfully"));
@@ -341,23 +334,24 @@ const updateCoverImage = asyncHandler(async (req, res) => {
     throw new ApiErrors(400, "coverImage is required");
   }
 
-  const coverImage = await uploadToCloudinary(coverImageLocalPath);
+  const user = await User.findById(req.user?._id);
 
-  if (coverImage) {
+  const coverImage = await uploadToCloudinary(coverImageLocalPath);
+  console.log(coverImage);
+
+  if (!coverImage) {
     throw new ApiErrors(400, "Error while uploading coverImage to cloud");
   }
 
-  await User.findByIdAndDelete(
-    req.user?._id,
-    {
-      $set: {
-        coverImage,
-      },
-    },
-    {
-      new: true,
-    }
-  );
+  let response;
+  if (user.coverImage) {
+    response = await deleteFromCloudinary(user.coverImage);
+    if (!response)
+      throw new ApiErrors(500, "Somthing went wrong while deleting coverImage");
+  }
+
+  user.coverImage = coverImage.url;
+  await user.save({ validateBeforeSave: false });
 
   return res
     .status(200)
@@ -434,10 +428,11 @@ const getUserChannelDetails = asyncHandler(async (req, res) => {
 });
 
 const getWatchHistory = asyncHandler(async (req, res) => {
+  console.log(req.user._id);
   const user = await User.aggregate([
     {
       $match: {
-        _id: Schema.Types.ObjectId(req.user?._id),
+        _id: req.user._id,
       },
     },
     {
@@ -476,9 +471,17 @@ const getWatchHistory = asyncHandler(async (req, res) => {
     },
   ]);
 
+  console.log(user);
+
   return res
     .status(200)
-    .json(new ApiResponse(user[0], 200, "watch history fetched successfully"));
+    .json(
+      new ApiResponse(
+        user[0].watchHistory,
+        200,
+        "watch history fetched successfully"
+      )
+    );
 });
 
 export {

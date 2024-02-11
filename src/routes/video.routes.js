@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { upload } from "../middlewares/multer.middleware.js";
 import {
-  publishAVideo,
+  publishVideo,
   getVideoById,
   updateVideo,
   deleteVideo,
+  getAllVideos,
 } from "../controllers/video.controller.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 
@@ -22,7 +23,7 @@ router.route("/publish").post(
       maxCount: 1,
     },
   ]),
-  publishAVideo
+  publishVideo
 );
 
 router.route("/watch/:videoId").get(getVideoById);
@@ -32,5 +33,7 @@ router
   .patch(verifyJWT, upload.single("thumbnail"), updateVideo);
 
 router.route("/delete-video/:videoId").delete(verifyJWT, deleteVideo);
+
+router.route("/videos").get(getAllVideos);
 
 export default router;

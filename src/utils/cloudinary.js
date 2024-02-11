@@ -14,7 +14,7 @@ const uploadToCloudinary = async (localFilePath) => {
     const response = await cloudinary.uploader.upload(localFilePath, {
       resource_type: "auto",
     });
-    // console.log(response.url);
+
     fs.unlinkSync(localFilePath);
     return response;
   } catch (error) {
@@ -23,14 +23,10 @@ const uploadToCloudinary = async (localFilePath) => {
   }
 };
 
-const deletFromCloudinary = async (pathUrl, option = {}) => {
-  let url = pathUrl.match(/\/sp_auto\//) || false;
- 
-  if (url) {
-    return true;
-  }
+const deleteFromCloudinary = async (pathUrl, option = {}) => {
+  if (pathUrl.match(/\/sp_auto\//)) return true;
 
-  const urlArray = pathUrl.match(/\/([^\/]+)\.(m3u8|mp4|jpeg|jpg)$/);
+  const urlArray = pathUrl.match(/\/([^\/]+)\.(m3u8|mp4|jpeg|jpg|png)$/);
 
   if (!urlArray && !urlArray[1]) {
     throw new ApiErrors(404, "somthing went wrong in public_id");
@@ -38,19 +34,10 @@ const deletFromCloudinary = async (pathUrl, option = {}) => {
 
   const public_id = urlArray[1];
 
-  console.log(public_id);
-
   try {
     const response = await cloudinary.uploader
       .destroy(public_id, option)
-      .then((result) => {
-        if (result.result === "ok") {
-          console.log(result);
-          return true;
-        } else {
-          return false;
-        }
-      });
+      .then((result) => result.result === "ok");
 
     return response;
   } catch (error) {
@@ -58,4 +45,4 @@ const deletFromCloudinary = async (pathUrl, option = {}) => {
   }
 };
 
-export { uploadToCloudinary, deletFromCloudinary };
+export { uploadToCloudinary, deleteFromCloudinary };
